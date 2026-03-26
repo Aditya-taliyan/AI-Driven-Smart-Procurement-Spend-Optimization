@@ -1,0 +1,257 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15
+    container_name: procurement-postgres
+    environment:
+      POSTGRES_DB: procurement_db
+      POSTGRES_USER: procurement_user
+      POSTGRES_PASSWORD: procurement_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - procurement-network
+
+  # Redis for caching and session management
+  redis:
+    image: redis:7-alpine
+    container_name: procurement-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - procurement-network
+
+  # Apache Kafka for streaming
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: procurement-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - procurement-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: procurement-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - procurement-network
+
+  # MLflow for MLOps
+  mlflow:
+    image: python:3.9-slim
+    container_name: procurement-mlflow
+    command: >
+      bash -c "pip install mlflow psycopg2-binary &&
+               mlflow server 
+               --host 0.0.0.0 
+               --port 5000 
+               --backend-store-uri postgresql://procurement_user:procurement_pass@postgres:5432/procurement_db
+               --default-artifact-root /mlflow/artifacts"
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow_data:/mlflow
+    depends_on:
+      - postgres
+    networks:
+      - procurement-network
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: procurement-backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://procurement_user:procurement_pass@postgres:5432/procurement_db
+      REDIS_URL: redis://redis:6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+      - mlflow
+    networks:
+      - procurement-network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # ML Services
+  ml-demand-forecasting:
+    build:
+      context: ./ml-services/demand_forecasting
+      dockerfile: Dockerfile
+    container_name: ml-demand-forecasting
+    ports:
+      - "8001:8000"
+    environment:
+      DATABASE_URL: postgresql://procurement_user:procurement_pass@postgres:5432/procurement_db
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    volumes:
+      - ./ml-services/demand_forecasting:/app
+      - ./data:/app/data
+    depends_on:
+      - postgres
+      - mlflow
+    networks:
+      - procurement-network
+
+  ml-price-prediction:
+    build:
+      context: ./ml-services/price_prediction
+      dockerfile: Dockerfile
+    container_name: ml-price-prediction
+    ports:
+      - "8002:8000"
+    environment:
+      DATABASE_URL: postgresql://procurement_user:procurement_pass@postgres:5432/procurement_db
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    volumes:
+      - ./ml-services/price_prediction:/app
+      - ./data:/app/data
+    depends_on:
+      - postgres
+      - mlflow
+    networks:
+      - procurement-network
+
+  ml-supplier-risk:
+    build:
+      context: ./ml-services/supplier_risk
+      dockerfile: Dockerfile
+    container_name: ml-supplier-risk
+    ports:
+      - "8003:8000"
+    environment:
+      DATABASE_URL: postgresql://procurement_user:procurement_pass@postgres:5432/procurement_db
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    volumes:
+      - ./ml-services/supplier_risk:/app
+      - ./data:/app/data
+    depends_on:
+      - postgres
+      - mlflow
+    networks:
+      - procurement-network
+
+  ml-anomaly-detection:
+    build:
+      context: ./ml-services/anomaly_detection
+      dockerfile: Dockerfile
+    container_name: ml-anomaly-detection
+    ports:
+      - "8004:8000"
+    environment:
+      DATABASE_URL: postgresql://procurement_user:procurement_pass@postgres:5432/procurement_db
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    volumes:
+      - ./ml-services/anomaly_detection:/app
+      - ./data:/app/data
+    depends_on:
+      - postgres
+      - mlflow
+    networks:
+      - procurement-network
+
+  ml-recommendations:
+    build:
+      context: ./ml-services/recommendations
+      dockerfile: Dockerfile
+    container_name: ml-recommendations
+    ports:
+      - "8005:8000"
+    environment:
+      DATABASE_URL: postgresql://procurement_user:procurement_pass@postgres:5432/procurement_db
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    volumes:
+      - ./ml-services/recommendations:/app
+      - ./data:/app/data
+    depends_on:
+      - postgres
+      - mlflow
+    networks:
+      - procurement-network
+
+  ml-optimization:
+    build:
+      context: ./ml-services/optimization
+      dockerfile: Dockerfile
+    container_name: ml-optimization
+    ports:
+      - "8006:8000"
+    environment:
+      DATABASE_URL: postgresql://procurement_user:procurement_pass@postgres:5432/procurement_db
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    volumes:
+      - ./ml-services/optimization:/app
+      - ./data:/app/data
+    depends_on:
+      - postgres
+      - mlflow
+    networks:
+      - procurement-network
+
+  # React Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: procurement-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      REACT_APP_API_URL: http://localhost:8000
+      REACT_APP_ML_SERVICES_URL: http://localhost
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - procurement-network
+    command: npm start
+
+  # Jupyter Notebook for development
+  jupyter:
+    image: jupyter/scipy-notebook:latest
+    container_name: procurement-jupyter
+    ports:
+      - "8888:8888"
+    environment:
+      JUPYTER_ENABLE_LAB: yes
+    volumes:
+      - ./notebooks:/home/jovyan/work
+      - ./data:/home/jovyan/data
+    networks:
+      - procurement-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  mlflow_data:
+
+networks:
+  procurement-network:
+    driver: bridge
