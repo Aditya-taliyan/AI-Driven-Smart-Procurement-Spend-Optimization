@@ -219,9 +219,9 @@ cd ml-services && python -m pytest
 ## 🤝 Contributing
 
 1. Fork the repository
-2. Create feature branch
-3. Make changes with tests
-4. Submit pull request
+2. Create a new branch
+3. Make your changes
+4. Submit a pull request
 
 ## 📄 License
 

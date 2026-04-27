@@ -12,6 +12,7 @@
 ```bash
 git clone <repository-url>
 cd smart-procurement-platform
+cp.env.example .env
 ```
 
 ### 2. Environment Configuration
